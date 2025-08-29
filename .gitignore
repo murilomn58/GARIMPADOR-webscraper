@@ -17,3 +17,4 @@ logs/
 .vscode/
 logs/screenshots/
 pnpm-lock.yaml
+.tools/
