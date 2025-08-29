@@ -1,0 +1,55 @@
+Como rodar o Web Scraping pela UI (Streamlit)
+
+Diretório do projeto (Windows):
+  C:\Users\Narcísius\OneDrive\Área de Trabalho\IC ITA\GARIMPADOR
+
+Pré-requisitos:
+- Node.js + npm instalados
+- Python 3.10+ com pip instalado
+
+Terminal 1 — Backend (API Express + Playwright):
+1) Abrir o PowerShell e navegar até a pasta do projeto:
+   cd "C:\Users\Narcísius\OneDrive\Área de Trabalho\IC ITA\GARIMPADOR"
+2) Instalar as dependências do projeto (primeira vez):
+   npm install
+3) Instalar o navegador do Playwright (primeira vez):
+   npx playwright install chromium
+4) Subir a API (porta 8000):
+   npm run dev
+   (aguarde ver: "API pronta em http://localhost:8000")
+
+Terminal 2 — UI Streamlit:
+1) Abrir outro PowerShell e navegar até a mesma pasta:
+   cd "C:\Users\Narcísius\OneDrive\Área de Trabalho\IC ITA\GARIMPADOR"
+2) Instalar dependências da UI (primeira vez):
+   pip install streamlit requests pandas
+3) Rodar a UI (porta 8501):
+   streamlit run src/ui/app.py
+4) Abrir no navegador:
+   http://localhost:8501
+
+Na UI (sidebar):
+- Marketplace: escolha (Temu, AliExpress, etc.)
+- Palavra de busca: ex. smartphone
+- N de Páginas: 1 (para teste)
+- N de Produtos: 3 (para teste)
+- Headless: desmarcado (janela visível)
+- Debug (screenshots em erros): marcado
+- Proxy: deixe vazio ou informe (ex.: http://user:pass@host:port)
+- Clique em “Iniciar”
+
+Saída e onde encontrar:
+- Export: .data\YYYY-MM-DD-<marketplace>-<query>.json | .csv
+- Logs: logs\run-<timestamp>.log
+- Screenshots/HTML (debug): logs\screenshots\<runId>\
+
+Observações e dicas:
+- Se aparecer captcha/wall, a UI mostrará “Intervenção necessária”. Tente usar proxy e rodar com Headless desmarcado.
+- Os seletores de Temu/AliExpress já estão com fallbacks e podem ser ajustados em src/scrapers/temu.ts e src/scrapers/aliexpress.ts se o DOM local variar.
+
+Alternativa (CLI):
+- Temu (1 pág, 3 produtos, janela visível + debug + export JSON):
+  npm run scrape -- --marketplace Temu --query "smartphone" --pages 1 --products 3 --headless false --debug --export json
+- AliExpress (CSV):
+  npm run scrape -- --marketplace AliExpress --query "smartphone" --pages 1 --products 3 --headless false --debug --export csv
+
