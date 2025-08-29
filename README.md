@@ -1,2 +1,0 @@
-# GARIMPADOR-webscraper
-webscrapss
