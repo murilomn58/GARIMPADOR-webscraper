@@ -1,0 +1,46 @@
+Deploy no GitHub — GARIMPADOR (passo a passo)
+
+URL do repositório privado:
+  https://github.com/murilomn58/GARIMPADOR-webscraper.git
+
+Pré‑requisitos:
+- Ter o repositório PRIVATE criado no GitHub (vazio de preferência)
+- Ter um Personal Access Token (PAT) com escopo repo
+  (GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate → marque "repo")
+
+Opção A — Script pronto (recomendado)
+1) Abra o PowerShell na pasta do projeto:
+   cd "C:\Users\Narcísius\OneDrive\Área de Trabalho\IC ITA\GARIMPADOR"
+2) Rode o publisher com a URL já configurada:
+   scripts\github\publish.bat
+3) Quando pedir, cole seu PAT (repo). O script fará:
+   - git branch -M main
+   - git remote add origin https://github.com/murilomn58/GARIMPADOR-webscraper.git
+   - git push usando o token (sem salvar no config)
+
+Opção B — Manual (4 comandos)
+1) PowerShell na pasta do projeto:
+   cd "C:\Users\Narcísius\OneDrive\Área de Trabalho\IC ITA\GARIMPADOR"
+2) Limpar remoto antigo (se existir) e adicionar o correto:
+   git remote remove origin
+   git remote add origin https://github.com/murilomn58/GARIMPADOR-webscraper.git
+3) Garantir branch principal:
+   git branch -M main
+4) Fazer push com token (sem gravar credencial):
+   $env:GITHUB_TOKEN = 'COLE_SEU_TOKEN_AQUI'
+   git push https://x-oauth-basic:$env:GITHUB_TOKEN@github.com/murilomn58/GARIMPADOR-webscraper.git main
+
+Após o push
+- No GitHub (web), confirme que o repo está PRIVATE
+- Adicione o seu amigo como colaborador:
+  Settings → Collaborators → Add people → informe e‑mail/username → enviar convite
+
+Se der erro
+- Authentication failed: gere um novo PAT com escopo repo e cole de novo
+- Repository not found: confirme a URL e se o repo existe
+- Conflito porque o remoto tem README: faça
+  git pull origin main --allow-unrelated-histories
+  (resolva merge se necessário) e depois git push origin main
+
+Pronto! Qualquer erro, copie a mensagem do PowerShell e me envie.
+

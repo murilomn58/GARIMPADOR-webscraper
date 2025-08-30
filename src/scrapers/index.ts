@@ -2,7 +2,13 @@ import { Scraper } from './types';
 import { TemuScraper } from './temu';
 import { AliExpressScraper } from './aliexpress';
 import { SubmarinoScraper } from './submarino';
+import { AmazonScraper } from './amazon';
+import { AmericanasScraper } from './americanas';
+import { MagaluScraper } from './magalu';
+import { ShopeeScraper } from './shopee';
 import { MercadoLivreScraper } from './mercado_livre';
+import { CarrefourScraper } from './carrefour';
+import { CasasBahiaScraper } from './casas_bahia';
 
 // Stubs a serem implementados depois
 const stub = (name: string, homeUrl: string): Scraper => ({
@@ -17,13 +23,13 @@ const stub = (name: string, homeUrl: string): Scraper => ({
 export const SCRAPERS: Record<string, Scraper> = {
   Temu: TemuScraper,
   AliExpress: AliExpressScraper,
-  Amazon: stub('Amazon', 'https://www.amazon.com.br'),
-  Americanas: stub('Americanas', 'https://www.americanas.com.br'),
-  Carrefour: stub('Carrefour', 'https://www.carrefour.com.br'),
-  'Casas Bahia': stub('Casas Bahia', 'https://www.casasbahia.com.br'),
-  Magalu: stub('Magalu', 'https://www.magazineluiza.com.br'),
+  Amazon: AmazonScraper,
+  Americanas: AmericanasScraper,
+  Carrefour: CarrefourScraper,
+  'Casas Bahia': CasasBahiaScraper,
+  Magalu: MagaluScraper,
   'Mercado Livre': MercadoLivreScraper,
-  Shopee: stub('Shopee', 'https://shopee.com.br'),
+  Shopee: ShopeeScraper,
   Submarino: SubmarinoScraper,
 };
 

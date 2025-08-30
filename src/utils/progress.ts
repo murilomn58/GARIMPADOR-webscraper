@@ -13,6 +13,9 @@ export type Progress = {
   currentItem: Produto | null;
   logs: { level: 'info'|'warn'|'error'; msg: string; time: string }[];
   intervencaoNecessaria: boolean;
+  screenshots: string[];
+  debug?: boolean;
+  runId?: string | null;
 };
 
 export class ProgressStore {
@@ -29,6 +32,9 @@ export class ProgressStore {
     currentItem: null,
     logs: [],
     intervencaoNecessaria: false,
+    screenshots: [],
+    debug: false,
+    runId: null,
   };
 
   get() { return this.state; }
@@ -37,7 +43,8 @@ export class ProgressStore {
     this.state = {
       running: false, marketplace: null, query: null,
       pagesTarget: 0, productsTarget: 0, pagesVisited: 0, productsCollected: 0, resultsFound: 0,
-      percent: 0, currentItem: null, logs: [], intervencaoNecessaria: false
+      percent: 0, currentItem: null, logs: [], intervencaoNecessaria: false,
+      screenshots: [], debug: false, runId: null
     };
   }
 }

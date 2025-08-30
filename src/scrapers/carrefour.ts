@@ -7,27 +7,22 @@ import { extractEAN, heuristicaPassivel, normalizePriceBRL, normalizeRating, sco
 import { memlog } from '../utils/logger';
 
 const SELECTORS = {
-  searchInput: [
-    'input[name="as_word"]',
-    'input[type="text"][aria-label*="Buscar" i]',
-    'input[type="search"]'
-  ].join(', '),
+  searchInput: 'input[type="search"], input[name*="search" i], input#search-input',
   productCards: [
-    'a.ui-search-link',
-    'a[class*="ui-search-link" i]',
-    'a[href*="/MLB-"]',
+    'a[href*="/produto/"]',
+    'a[href*="/p/" i]',
+    'a[class*="product" i]'
   ].join(', '),
   nextPage: [
-    'a[title*="Seguinte" i]',
-    'a[aria-label*="Seguinte" i]',
-    'a.ui-search-link[rel="next"]',
-    'a[rel="next"]'
-  ].join(', '),
+    'a[rel="next"]',
+    'a[aria-label*="Próxima" i]',
+    'button[aria-label*="Próxima" i]'
+  ].join(', ')
 };
 
-export const MercadoLivreScraper: Scraper = {
-  name: 'Mercado Livre',
-  homeUrl: 'https://www.mercadolivre.com.br/',
+export const CarrefourScraper: Scraper = {
+  name: 'Carrefour',
+  homeUrl: 'https://www.carrefour.com.br/',
   selectors: SELECTORS,
 
   async search(page: Page, params) {
@@ -43,7 +38,7 @@ export const MercadoLivreScraper: Scraper = {
       await page.waitForLoadState('domcontentloaded', { timeout: params.timeouts.load * 1000 });
     } catch {
       const q = encodeURIComponent(params.query);
-      await page.goto(`https://lista.mercadolivre.com.br/${q}`, { waitUntil: 'domcontentloaded', timeout: params.timeouts.load * 1000 });
+      await page.goto(`https://www.carrefour.com.br/busca/${q}`, { waitUntil: 'domcontentloaded', timeout: params.timeouts.load * 1000 });
     }
     await page.locator(SELECTORS.productCards).first().waitFor({ timeout: params.timeouts.load * 1000 }).catch(()=>{});
   },
@@ -66,54 +61,46 @@ export const MercadoLivreScraper: Scraper = {
         return true;
       }
     } catch (e) {
-      memlog.push('warn', `Mercado Livre: não achou botão próxima página`);
+      memlog.push('warn', `Carrefour: não achou botão próxima página`);
     }
     return false;
   },
 
   async parseProductPage(page: Page, url: string, query: string, pageIndex: number): Promise<Produto | null> {
     try {
-      if (!page.url().includes('/MLB-')) {
+      if (!/\/(p|produto)\//.test(page.url())) {
         await page.goto(url, { waitUntil: 'domcontentloaded' });
       }
       await tryClosePopups(page);
       await scrollIncremental(page, 5);
 
-      // Título
-      const nome = (await page.locator('h1.ui-pdp-title, h1[itemprop="name"], h1').first().textContent())?.trim() || 'Produto';
+      const titleSel = 'h1, [data-testid*="title" i], [itemprop="name"]';
+      const priceSel = '[data-testid*="price" i], [class*="price" i], [itemprop="price"]';
+      const ratingSel = '[data-testid*="rating" i], [class*="rating" i]';
+      const imageSel = 'img[src^="http" i]';
 
-      // Preço: pode estar fragmentado em fração/centavos dentro do mesmo container
-      let priceText = await page.locator('[data-testid*="price" i], .ui-pdp-price__second-line, .andes-money-amount').first().innerText().catch(()=>null);
-      if (!priceText) priceText = await page.locator('[class*="price" i]').first().innerText().catch(()=>null);
-      const preco = normalizePriceBRL(priceText);
-
-      // Nota
-      const nota = normalizeRating(
-        (await page.locator('.ui-pdp-review__rating, .ui-review-capability__rating, [aria-label*="estrelas" i]').first().textContent())?.trim() || null
-      );
-
-      // Imagem principal
-      const imagem = await page.locator('.ui-pdp-gallery__figure img, img.ui-pdp-image, img[src^="http" i]').first().getAttribute('src');
-
-      // Descrição
+      const nome = (await page.locator(titleSel).first().textContent())?.trim() || 'Produto';
+      let precoText = (await page.locator(priceSel).first().textContent())?.trim() || null;
+      if (!precoText) precoText = await page.locator('[itemprop="price"]').first().getAttribute('content').catch(()=>null);
+      const preco = normalizePriceBRL(precoText);
+      const notaText = (await page.locator(ratingSel).first().textContent())?.trim() || null;
+      const nota = normalizeRating(notaText);
+      const imagem = await page.locator(imageSel).first().getAttribute('src');
       const descricao = await page.locator('meta[name="description"]').getAttribute('content');
 
-      // Especificações: blocos com dt/dd ou tabelas
       const caracteristicas: Record<string, string> = {};
       const specBlocks = page.locator('section, div, table, dl');
       const n = await specBlocks.count();
-      for (let i=0; i<n && i<14; i++) {
+      for (let i=0; i<n && i<12; i++) {
         try {
           const html = await specBlocks.nth(i).innerHTML();
-          if (!/(ficha|especifica|caracter|técnic|tecnic|spec|informac)/i.test(html)) continue;
-          // Tabela key/value
+          if (!/(ficha|especifica|caracter|técnic|tecnic|spec)/i.test(html)) continue;
           const kvPairs = await specBlocks.nth(i).locator('tr').evaluateAll((rows:any[]) => rows.map(r=>{
             const th = (r.querySelector('th')||r.querySelector('td'))?.textContent?.trim()||'';
             const td = (r.querySelectorAll('td')[1]||r.querySelector('td'))?.textContent?.trim()||'';
             return [th, td];
           }));
           for (const [k,v] of kvPairs) if (k && v) caracteristicas[k.toLowerCase()] = v;
-          // DL dt/dd
           const dts = await specBlocks.nth(i).locator('dt').allTextContents().catch(()=>[]);
           const dds = await specBlocks.nth(i).locator('dd').allTextContents().catch(()=>[]);
           for (let j=0; j<Math.min(dts.length, dds.length); j++) {
@@ -125,10 +112,7 @@ export const MercadoLivreScraper: Scraper = {
 
       const getFromSpecs = (...keys: string[]) => {
         const hay = Object.keys(caracteristicas);
-        for (const k of keys) {
-          const found = hay.find(h => h.includes(k));
-          if (found) return caracteristicas[found];
-        }
+        for (const k of keys) { const found = hay.find(h => h.includes(k)); if (found) return caracteristicas[found]; }
         return null;
       };
 
@@ -136,7 +120,6 @@ export const MercadoLivreScraper: Scraper = {
       const modelo = getFromSpecs('modelo','model');
       const fabricante = getFromSpecs('fabricante','manufacturer');
       const ean_gtin = extractEAN(getFromSpecs('ean','gtin','codigo de barras'));
-      const certificado = getFromSpecs('anatel','certifica');
 
       const imagens = await page.locator('img[src^="http" i]').evaluateAll((imgs:any[]) =>
         Array.from(new Set(imgs.map(i => (i as HTMLImageElement).src))).slice(0,8)
@@ -144,7 +127,7 @@ export const MercadoLivreScraper: Scraper = {
 
       const prod: Produto = {
         nome,
-        preco: preco,
+        preco,
         nota,
         avaliacoes: null,
         imagem: imagem ?? null,
@@ -155,7 +138,7 @@ export const MercadoLivreScraper: Scraper = {
         probabilidade: scoreRelevancia(query, nome, descricao ?? undefined),
         passivel: heuristicaPassivel(nome, descricao ?? undefined, null),
         categoria: null,
-        certificado: certificado ?? null,
+        certificado: null,
         ean_gtin: ean_gtin ?? null,
         fabricante: fabricante ?? null,
         marca: marca ?? null,
@@ -173,8 +156,9 @@ export const MercadoLivreScraper: Scraper = {
       };
       return prod;
     } catch (e:any) {
-      memlog.push('warn', `Mercado Livre parseProductPage erro: ${e?.message || e}`);
+      memlog.push('warn', `Carrefour parseProductPage erro: ${e?.message || e}`);
       return null;
     }
   }
 };
+

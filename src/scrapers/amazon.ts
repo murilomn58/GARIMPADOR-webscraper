@@ -8,31 +8,18 @@ import fs from 'fs';
 import path from 'path';
 import { memlog } from '../utils/logger';
 
-// Submarino (B2W) — seletores podem variar; usar fallbacks e busca direta.
 const SELECTORS = {
-  searchInput: [
-    'input[type="search"]',
-    'input#h_search-input',
-    'input[name*="search" i]',
-    'input[name*="conteudo" i]'
-  ].join(', '),
+  searchInput: '#twotabsearchtextbox, input[type="search"]',
   productCards: [
-    'a[href*="/produto/"]',
-    'a[href*="/produtos/"]',
-    'a[data-component*="product" i]',
-    'a[class*="product" i]'
+    'a.a-link-normal.s-underline-text.s-underline-link-text.s-link-style.a-text-normal',
+    'a[href*="/dp/"]'
   ].join(', '),
-  nextPage: [
-    'a[rel="next"]',
-    'a[aria-label*="Próxima" i]',
-    'button[aria-label*="Próxima" i]',
-    'a:has-text("Próxima")'
-  ].join(', ')
+  nextPage: 'a.s-pagination-next'
 };
 
-export const SubmarinoScraper: Scraper = {
-  name: 'Submarino',
-  homeUrl: 'https://www.submarino.com.br/',
+export const AmazonScraper: Scraper = {
+  name: 'Amazon',
+  homeUrl: 'https://www.amazon.com.br',
   selectors: SELECTORS,
 
   async search(page: Page, params) {
@@ -48,7 +35,7 @@ export const SubmarinoScraper: Scraper = {
       await page.waitForLoadState('domcontentloaded', { timeout: params.timeouts.load * 1000 });
     } catch {
       const q = encodeURIComponent(params.query);
-      await page.goto(`https://www.submarino.com.br/busca/${q}`, { waitUntil: 'domcontentloaded', timeout: params.timeouts.load * 1000 });
+      await page.goto(`https://www.amazon.com.br/s?k=${q}`, { waitUntil: 'domcontentloaded', timeout: params.timeouts.load * 1000 });
     }
     await page.locator(SELECTORS.productCards).first().waitFor({ timeout: params.timeouts.load * 1000 }).catch(()=>{});
   },
@@ -58,7 +45,8 @@ export const SubmarinoScraper: Scraper = {
     const links = await page.locator(SELECTORS.productCards).evaluateAll((as: any[]) =>
       as.map(a => (a as HTMLAnchorElement).href).filter(Boolean)
     );
-    return Array.from(new Set(links));
+    // Normaliza URLs curtas com /dp/
+    return Array.from(new Set(links.map(u => u.includes('/dp/') ? u.split('?')[0] : u)));
   },
 
   async goToNextPage(page: Page) {
@@ -71,14 +59,14 @@ export const SubmarinoScraper: Scraper = {
         return true;
       }
     } catch (e) {
-      memlog.push('warn', `Submarino: não achou botão próxima página`);
+      memlog.push('warn', `Amazon: não achou botão próxima página`);
     }
     return false;
   },
 
   async parseProductPage(page: Page, url: string, query: string, pageIndex: number): Promise<Produto | null> {
     try {
-      if (!page.url().includes('/produto/') && !page.url().includes('/produtos/')) {
+      if (!/\/dp\//.test(page.url())) {
         await page.goto(url, { waitUntil: 'domcontentloaded' });
       }
       await tryClosePopups(page);
@@ -113,8 +101,8 @@ export const SubmarinoScraper: Scraper = {
         return Math.max(0, Math.min(5, v));
       };
 
-      const titleSel = 'h1, [data-testid="product-title"], .product-name';
-      const priceSel = '[itemprop="price"], [data-testid*="price" i], .price__BestPrice, .price__SalesPrice, [class*="Price" i]';
+      const titleSel = '#productTitle, h1, [data-testid*="title" i]';
+      const priceSel = '#corePrice_feature_div .a-offscreen, span.a-price .a-offscreen, [itemprop="price"]';
 
       const ld = await getProductJsonLD();
       let nome: string | null = ld?.name ?? null;
@@ -150,8 +138,8 @@ export const SubmarinoScraper: Scraper = {
         preco = parseBRL(ptext);
       }
 
-      // Imagens — apenas galeria do VTEX Submarino; excluir vlibras
-      const galSel = '[data-testid*="image" i] img, .vtex-store-components-3-x-imageElement img, .vtex-store-components-3-x-imageElement';
+      // Imagens — apenas galeria; excluir vlibras; filtro de domínio Amazon CDN
+      const galSel = '#imgTagWrapperId img, img#landingImage, img[src^="http" i]';
       const imagensArr = await page.locator(galSel).evaluateAll((imgs:any[]) =>
         Array.from(new Set(imgs.map(i => {
           const el = i as HTMLImageElement;
@@ -161,37 +149,29 @@ export const SubmarinoScraper: Scraper = {
       ).catch(()=>[] as string[]);
       const imagens = imagensArr
         .filter(u => !/vlibras\.gov\.br/i.test(u))
-        .filter(u => /submarino\.vtexassets\.com.*arquivos.*ids/i.test(u))
+        .filter(u => /(media-amazon|ssl-images-amazon|images-amazon|amazon\.)/i.test(u))
         .slice(0, 8);
       for (const u of imagensArr) {
         if (/vlibras\.gov\.br/i.test(u)) console.warn('Imagem inválida descartada: VLibras');
-        else if (!/submarino\.vtexassets\.com.*arquivos.*ids/i.test(u)) console.warn('Imagem inválida descartada: fora da galeria');
+        else if (!/(media-amazon|ssl-images-amazon|images-amazon|amazon\.)/i.test(u)) console.warn('Imagem inválida descartada: fora da galeria');
       }
-
       const imagem = imagens.length ? imagens[0] : null;
+
       const descricaoMeta = await page.locator('meta[name="description"]').getAttribute('content');
       const descricao = descricaoLD ?? descricaoMeta ?? null;
 
-      // coletar especificações: pares chave:valor
+      // Especificações simples por tabela
       const caracteristicas: Record<string, string> = {};
-      const specBlocks = page.locator('section, div, table, dl');
+      const specBlocks = page.locator('#productDetails_techSpec_section_1, #productDetails_techSpec_section_2, table, dl');
       const n = await specBlocks.count();
       for (let i=0; i<n && i<12; i++) {
         try {
-          const html = await specBlocks.nth(i).innerHTML();
-          if (!/(ficha|especifica|caracter|técnic|tecnic|spec)/i.test(html)) continue;
           const kvPairs = await specBlocks.nth(i).locator('tr').evaluateAll((rows:any[]) => rows.map(r=>{
             const th = (r.querySelector('th')||r.querySelector('td'))?.textContent?.trim()||'';
             const td = (r.querySelectorAll('td')[1]||r.querySelector('td'))?.textContent?.trim()||'';
             return [th, td];
           }));
           for (const [k,v] of kvPairs) if (k && v) caracteristicas[k.toLowerCase()] = v;
-          const dts = await specBlocks.nth(i).locator('dt').allTextContents().catch(()=>[]);
-          const dds = await specBlocks.nth(i).locator('dd').allTextContents().catch(()=>[]);
-          for (let j=0; j<Math.min(dts.length, dds.length); j++) {
-            const k = dts[j].trim(); const v = dds[j].trim();
-            if (k && v) caracteristicas[k.toLowerCase()] = v;
-          }
         } catch {}
       }
 
@@ -203,8 +183,6 @@ export const SubmarinoScraper: Scraper = {
           fs.writeFileSync(out, JSON.stringify(ld, null, 2), 'utf-8');
         } catch {}
       }
-
-      const certificado = null;
 
       const prod: Produto = {
         nome: nome ?? 'Produto',
@@ -219,8 +197,8 @@ export const SubmarinoScraper: Scraper = {
         probabilidade: scoreRelevancia(query, nome ?? undefined, descricao ?? undefined),
         passivel: heuristicaPassivel(nome ?? undefined, descricao ?? undefined, null),
         categoria: categoria ?? null,
-        certificado,
-        ean_gtin: ean_gtin ?? extractEAN(JSON.stringify(caracteristicas) || ''),
+        certificado: null,
+        ean_gtin: ean_gtin ?? null,
         fabricante: null,
         marca: marca ?? null,
         modelo: null,
@@ -236,8 +214,8 @@ export const SubmarinoScraper: Scraper = {
         vendedor: vendedor ?? null,
       };
       return prod;
-    } catch (e: any) {
-      memlog.push('warn', `Submarino parseProductPage erro: ${e?.message || e}`);
+    } catch (e:any) {
+      memlog.push('warn', `Amazon parseProductPage erro: ${e?.message || e}`);
       return null;
     }
   }

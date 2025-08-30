@@ -8,13 +8,11 @@ import fs from 'fs';
 import path from 'path';
 import { memlog } from '../utils/logger';
 
-// Submarino (B2W) — seletores podem variar; usar fallbacks e busca direta.
 const SELECTORS = {
   searchInput: [
     'input[type="search"]',
     'input#h_search-input',
-    'input[name*="search" i]',
-    'input[name*="conteudo" i]'
+    'input[name*="search" i]'
   ].join(', '),
   productCards: [
     'a[href*="/produto/"]',
@@ -30,9 +28,9 @@ const SELECTORS = {
   ].join(', ')
 };
 
-export const SubmarinoScraper: Scraper = {
-  name: 'Submarino',
-  homeUrl: 'https://www.submarino.com.br/',
+export const AmericanasScraper: Scraper = {
+  name: 'Americanas',
+  homeUrl: 'https://www.americanas.com.br/',
   selectors: SELECTORS,
 
   async search(page: Page, params) {
@@ -48,7 +46,7 @@ export const SubmarinoScraper: Scraper = {
       await page.waitForLoadState('domcontentloaded', { timeout: params.timeouts.load * 1000 });
     } catch {
       const q = encodeURIComponent(params.query);
-      await page.goto(`https://www.submarino.com.br/busca/${q}`, { waitUntil: 'domcontentloaded', timeout: params.timeouts.load * 1000 });
+      await page.goto(`https://www.americanas.com.br/busca/${q}`, { waitUntil: 'domcontentloaded', timeout: params.timeouts.load * 1000 });
     }
     await page.locator(SELECTORS.productCards).first().waitFor({ timeout: params.timeouts.load * 1000 }).catch(()=>{});
   },
@@ -71,14 +69,14 @@ export const SubmarinoScraper: Scraper = {
         return true;
       }
     } catch (e) {
-      memlog.push('warn', `Submarino: não achou botão próxima página`);
+      memlog.push('warn', `Americanas: não achou botão próxima página`);
     }
     return false;
   },
 
   async parseProductPage(page: Page, url: string, query: string, pageIndex: number): Promise<Produto | null> {
     try {
-      if (!page.url().includes('/produto/') && !page.url().includes('/produtos/')) {
+      if (!/\/produto\//.test(page.url())) {
         await page.goto(url, { waitUntil: 'domcontentloaded' });
       }
       await tryClosePopups(page);
@@ -92,10 +90,13 @@ export const SubmarinoScraper: Scraper = {
             const j = JSON.parse(t);
             const arr = Array.isArray(j) ? j : [j];
             for (const node of arr) {
+              // Alguns sites usam @graph
               const graph = node['@graph'];
               const nodes = Array.isArray(graph) ? graph : [node];
               for (const n of nodes) {
-                if (n && (n['@type'] === 'Product' || (Array.isArray(n['@type']) && n['@type'].includes('Product')))) return n as any;
+                if (n && (n['@type'] === 'Product' || (Array.isArray(n['@type']) && n['@type'].includes('Product')))) {
+                  return n as any;
+                }
               }
             }
           } catch {}
@@ -113,9 +114,10 @@ export const SubmarinoScraper: Scraper = {
         return Math.max(0, Math.min(5, v));
       };
 
-      const titleSel = 'h1, [data-testid="product-title"], .product-name';
+      const titleSel = 'h1, [data-testid*="title" i]';
       const priceSel = '[itemprop="price"], [data-testid*="price" i], .price__BestPrice, .price__SalesPrice, [class*="Price" i]';
 
+      // 1) JSON-LD Product
       const ld = await getProductJsonLD();
       let nome: string | null = ld?.name ?? null;
       let preco: number | null = null;
@@ -131,13 +133,17 @@ export const SubmarinoScraper: Scraper = {
 
       if (ld?.offers) {
         const offers = Array.isArray(ld.offers) ? ld.offers[0] : ld.offers;
-        if (offers?.price) { preco = parseBRL(offers.price); console.warn('Usando JSON-LD para preço'); }
+        if (offers?.price) {
+          preco = parseBRL(offers.price);
+          console.warn('Usando JSON-LD para preço');
+        }
       }
       if (ld?.aggregateRating) {
         nota = clampNota(ld.aggregateRating.ratingValue);
         avaliacoes = typeof ld.aggregateRating.reviewCount === 'number' ? ld.aggregateRating.reviewCount : parseInt(ld.aggregateRating.reviewCount || '0', 10) || null;
       }
 
+      // 2) Fallbacks – logar aviso
       if (!nome) {
         console.warn('Fallback em seletor de título');
         nome = (await page.locator(titleSel).first().textContent())?.trim() || null;
@@ -150,29 +156,30 @@ export const SubmarinoScraper: Scraper = {
         preco = parseBRL(ptext);
       }
 
-      // Imagens — apenas galeria do VTEX Submarino; excluir vlibras
+      // 3) Imagens — apenas galeria e domínio VTEX; excluir vlibras
       const galSel = '[data-testid*="image" i] img, .vtex-store-components-3-x-imageElement img, .vtex-store-components-3-x-imageElement';
       const imagensArr = await page.locator(galSel).evaluateAll((imgs:any[]) =>
         Array.from(new Set(imgs.map(i => {
           const el = i as HTMLImageElement;
+          // elementos .vtex-store-components-3-x-imageElement podem ser DIVs com background? pegar src se existir
           // @ts-ignore
           return (el && el.src) ? el.src : null;
         }).filter(Boolean)))
       ).catch(()=>[] as string[]);
       const imagens = imagensArr
         .filter(u => !/vlibras\.gov\.br/i.test(u))
-        .filter(u => /submarino\.vtexassets\.com.*arquivos.*ids/i.test(u))
+        .filter(u => /americanas\.vtexassets\.com.*arquivos.*ids/i.test(u))
         .slice(0, 8);
       for (const u of imagensArr) {
         if (/vlibras\.gov\.br/i.test(u)) console.warn('Imagem inválida descartada: VLibras');
-        else if (!/submarino\.vtexassets\.com.*arquivos.*ids/i.test(u)) console.warn('Imagem inválida descartada: fora da galeria');
+        else if (!/americanas\.vtexassets\.com.*arquivos.*ids/i.test(u)) console.warn('Imagem inválida descartada: fora da galeria');
       }
 
       const imagem = imagens.length ? imagens[0] : null;
       const descricaoMeta = await page.locator('meta[name="description"]').getAttribute('content');
       const descricao = descricaoLD ?? descricaoMeta ?? null;
 
-      // coletar especificações: pares chave:valor
+      // Especificações (mantemos o bloco atual para enriquecer caracteristicas)
       const caracteristicas: Record<string, string> = {};
       const specBlocks = page.locator('section, div, table, dl');
       const n = await specBlocks.count();
@@ -195,6 +202,7 @@ export const SubmarinoScraper: Scraper = {
         } catch {}
       }
 
+      // Se titulo ou preço continuarem nulos, salvar JSON-LD para debug
       if (!nome || !preco) {
         try {
           const outDir = path.join(process.cwd(), 'logs');
@@ -204,13 +212,12 @@ export const SubmarinoScraper: Scraper = {
         } catch {}
       }
 
-      const certificado = null;
-
+      // Monta Produto
       const prod: Produto = {
         nome: nome ?? 'Produto',
         preco: preco ?? null,
-        nota,
-        avaliacoes,
+        nota: nota,
+        avaliacoes: avaliacoes,
         imagem: imagem ?? null,
         data: dayjs().toISOString(),
         url,
@@ -219,7 +226,7 @@ export const SubmarinoScraper: Scraper = {
         probabilidade: scoreRelevancia(query, nome ?? undefined, descricao ?? undefined),
         passivel: heuristicaPassivel(nome ?? undefined, descricao ?? undefined, null),
         categoria: categoria ?? null,
-        certificado,
+        certificado: null,
         ean_gtin: ean_gtin ?? extractEAN(JSON.stringify(caracteristicas) || ''),
         fabricante: null,
         marca: marca ?? null,
@@ -236,8 +243,8 @@ export const SubmarinoScraper: Scraper = {
         vendedor: vendedor ?? null,
       };
       return prod;
-    } catch (e: any) {
-      memlog.push('warn', `Submarino parseProductPage erro: ${e?.message || e}`);
+    } catch (e:any) {
+      memlog.push('warn', `Americanas parseProductPage erro: ${e?.message || e}`);
       return null;
     }
   }

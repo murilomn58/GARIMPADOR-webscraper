@@ -1,0 +1,36 @@
+Como finalizar o deploy no GitHub (repositório privado)
+
+1) Criar repositório privado no GitHub
+- Vá em https://github.com/new
+- Nome: GARIMPADOR-webscraper (ou outro)
+- Visibility: Private
+- Crie o repositório vazio (sem README inicial, para evitar conflito).
+
+2) Gerar um Personal Access Token (PAT)
+- GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+- Generate new token (classic)
+- Marque o escopo: repo
+- Copie o token (guarde em lugar seguro)
+
+3) Fazer o push do código
+- Abra o PowerShell na pasta do projeto
+  cd "C:\Users\Narcísius\OneDrive\Área de Trabalho\IC ITA\GARIMPADOR"
+- Rode o publicador com a URL do seu repo:
+  scripts\github\publish.bat
+  (ele usa a URL https://github.com/murilomn58/GARIMPADOR-webscraper.git e pedirá o token)
+- Alternativa manual:
+  powershell -ExecutionPolicy Bypass -File scripts/github/publish.ps1 -RepoUrl "https://github.com/murilomn58/GARIMPADOR-webscraper.git"
+
+4) Adicionar seu amigo como colaborador
+- No repositório (GitHub web): Settings → Collaborators → Add people
+- Informe o e-mail/username do seu amigo e envie o convite
+- Ele deve aceitar para ter acesso.
+
+5) Confirmar
+- Repositório deve aparecer como Private
+- A branch principal é main com todo o código
+
+Observações
+- O histórico já foi limpo de arquivos grandes (.tools) e o .gitignore impede reentrada.
+- Se quiser trocar o nome do repo, atualize a URL no scripts\github\publish.bat ou passe a nova URL no parâmetro -RepoUrl do publish.ps1.
+

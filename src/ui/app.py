@@ -55,9 +55,9 @@ with st.sidebar:
     st.header("CONFIGURAÇÕES · BROWSER")
     connect = st.number_input("Tempo de espera para conectar-se ao navegador (s)", min_value=1.0, value=7.0, step=0.5)
     load = st.number_input("Tempo limite ao carregar elementos da página (s)", min_value=1.0, value=3.0, step=0.5)
-    headless = st.checkbox("Headless", value=True)
+    headless = st.checkbox("Headless", value=False)
     proxy = st.text_input("Proxy (opcional)", value="")
-    debug = st.checkbox("Debug (screenshots em erros)", value=False)
+    debug = st.checkbox("Debug (screenshots em erros)", value=True)
 
     run = st.button("Iniciar")
     stop = st.button("Parar")
@@ -79,6 +79,9 @@ table_box = st.empty()
 legend = st.markdown("<span class='app-legend'>Classificação: Positivo (Homologação Compulsória pela Anatel) · Negativo (Não é produto de Telecomunicações)</span>", unsafe_allow_html=True)
 with st.expander("Logs (recentes)"):
     logs_box = st.empty()
+
+with st.expander("Debug · Screenshots & Paleta de Cores", expanded=False):
+    debug_shots_box = st.container()
 
 session = requests.Session()
 
@@ -129,62 +132,105 @@ def color_rules(val, col):
     return ""
 
 def render_status():
+    # buscar status do backend
     try:
         r = session.get(f"{API}/status", timeout=10)
-        if not r.ok:
-            progress_container.info("Aguardando backend...")
-            return
-        s = r.json()
-        percent = int(s.get("percent", 0))
-        progress_container.progress(percent/100)
-        counts_container.markdown(
-            f"<div class='app-counters'>Realizando raspagem <strong>{percent}%</strong> — "
-            f"<strong>{s.get('resultsFound',0)}</strong> resultados de busca — "
-            f"<strong>{s.get('productsCollected',0)}/{s.get('productsTarget',0)}</strong> anúncios processados</div>",
-            unsafe_allow_html=True
-        )
-        if s.get("intervencaoNecessaria"):
-            st.error("Intervenção necessária: captcha/wall detectado. Avalie executar com proxy e headful.")
-        current = s.get("currentItem")
-        if current:
-            if current.get("imagem"):
-                image_box.image(current.get("imagem"), caption=current.get("nome", ""), use_column_width=True)
-            # miniaturas adicionais
-            try:
-                imgs = current.get("imagens") or []
-                thumbs = [u for u in imgs if isinstance(u, str)][1:6]
-                if thumbs:
-                    cthumbs = thumbs_box.container()
-                    cols_th = cthumbs.columns(len(thumbs), gap="small")
-                    for i, u in enumerate(thumbs):
-                        with cols_th[i]:
-                            st.image(u, use_column_width=True)
-            except Exception:
-                pass
-            json_box.json(current)
-        # build table
-        try:
-            data = session.get(f"{API}/data", timeout=10).json().get('items', [])
-            if data:
-                df = pd.DataFrame(data)
-                def style_df(df):
-                    def highlight(val, col):
-                        if col in ("certificado","ean_gtin","modelo") and (pd.isna(val) or val == ""):
-                            return "background-color: #fff3cd"
-                        return ""
-                    return df.style.apply(lambda s: [highlight(v, s.name) for v in s], axis=0)
-                table_box.dataframe(style_df(df), use_container_width=True)
-        except Exception:
-            pass
-        # logs
-        try:
-            logs = s.get('logs', [])
-            if logs:
-                logs_box.code("\n".join([f"[{l.get('time','')}] {l.get('level','')}: {l.get('msg','')}" for l in logs]))
-        except Exception:
-            pass
-    except Exception as e:
+    except Exception:
         progress_container.info("Backend indisponível")
+        return
+    if not r.ok:
+        progress_container.info("Aguardando backend...")
+        return
+    s = r.json()
+    percent = int(s.get("percent", 0))
+    progress_container.progress(percent/100)
+    counts_container.markdown(
+        f"<div class='app-counters'>Realizando raspagem <strong>{percent}%</strong> — "
+        f"<strong>{s.get('resultsFound',0)}</strong> resultados de busca — "
+        f"<strong>{s.get('productsCollected',0)}/{s.get('productsTarget',0)}</strong> anúncios processados</div>",
+        unsafe_allow_html=True
+    )
+    if s.get("intervencaoNecessaria"):
+        st.error("Intervenção necessária: captcha/wall detectado. Avalie executar com proxy e headful.")
+    current = s.get("currentItem")
+    if current:
+        if current.get("imagem"):
+            image_box.image(current.get("imagem"), caption=current.get("nome", ""), use_column_width=True)
+        # miniaturas adicionais
+        try:
+            imgs = current.get("imagens") or []
+            thumbs = [u for u in imgs if isinstance(u, str)][1:6]
+            if thumbs:
+                cthumbs = thumbs_box.container()
+                cols_th = cthumbs.columns(len(thumbs), gap="small")
+                for i, u in enumerate(thumbs):
+                    with cols_th[i]:
+                        st.image(u, use_column_width=True)
+        except Exception:
+            pass
+        json_box.json(current)
+    # build table
+    try:
+        data = session.get(f"{API}/data", timeout=10).json().get('items', [])
+        if data:
+            df = pd.DataFrame(data)
+            def style_df(df):
+                def highlight(val, col):
+                    if col in ("certificado","ean_gtin","modelo") and (pd.isna(val) or val == ""):
+                        return "background-color: #fff3cd"
+                    return ""
+                return df.style.apply(lambda s: [highlight(v, s.name) for v in s], axis=0)
+            table_box.dataframe(style_df(df), use_container_width=True)
+    except Exception:
+        pass
+    # logs
+    try:
+        logs = s.get('logs', [])
+        if logs:
+            logs_box.code("\n".join([f"[{l.get('time','')}] {l.get('level','')}: {l.get('msg','')}" for l in logs]))
+    except Exception:
+        pass
+
+    # debug screenshots + color palette
+    try:
+        shots = s.get('screenshots', []) or []
+        if shots:
+            with debug_shots_box:
+                st.caption(f"Screenshots salvos: {len(shots)}")
+                show = shots[-6:]
+                for path in show:
+                    cols = st.columns([2,3])
+                    with cols[0]:
+                        try:
+                            st.image(path, caption=path.split('/')[-1], use_column_width=True)
+                        except Exception:
+                            st.write(path)
+                    with cols[1]:
+                        # tenta extrair paleta com PIL; fallback para nota
+                        hexes = []
+                        try:
+                            from PIL import Image
+                            im = Image.open(path).convert('RGB')
+                            im_small = im.resize((64,64))
+                            pal = im_small.quantize(colors=6, method=2)
+                            # obter cores mais frequentes
+                            counts = pal.getcolors(64*64) or []
+                            counts = sorted(counts, key=lambda x: -x[0])[:6]
+                            pal_list = pal.getpalette() or []
+                            palette = []
+                            for _, idx in counts:
+                                base = idx * 3
+                                if base+2 < len(pal_list):
+                                    palette.append((pal_list[base], pal_list[base+1], pal_list[base+2]))
+                            hexes = ['#%02x%02x%02x' % c for c in palette]
+                        except Exception:
+                            st.info("Instale Pillow para paleta (pip install pillow)")
+                        if hexes:
+                            # render blocos de cores
+                            sw = "".join([f"<div style='width:32px;height:32px;border-radius:6px;margin-right:6px;border:1px solid #e5e7eb;background:{h}' title='{h}'></div>" for h in hexes])
+                            st.markdown(f"<div style='display:flex;align-items:center'>{sw}</div>", unsafe_allow_html=True)
+    except Exception:
+        pass
 
 render_status()
 

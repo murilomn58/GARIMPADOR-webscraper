@@ -65,7 +65,9 @@ export const TemuScraper: Scraper = {
 
   async parseProductPage(page: Page, url: string, query: string, pageIndex: number): Promise<Produto | null> {
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      if (!page.url().includes('/goods')) {
+        await page.goto(url, { waitUntil: 'domcontentloaded' });
+      }
       await tryClosePopups(page);
       await scrollIncremental(page, 5);
 

@@ -59,13 +59,26 @@ export const AliExpressScraper: Scraper = {
   },
   async parseProductPage(page: Page, url: string, query: string, pageIndex: number): Promise<Produto | null> {
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      // Se já navegamos com referer no manager, não repetir
+      if (!page.url().includes('/item/') && !page.url().includes('/i/')) {
+        await page.goto(url, { waitUntil: 'domcontentloaded' });
+      }
       await tryClosePopups(page);
       await scrollIncremental(page, 5);
-      const nome = (await page.locator('h1, .product-title-text').first().textContent())?.trim() || 'Produto';
-      const price = normalizePriceBRL((await page.locator('.product-price-value, .price').first().textContent())?.trim() || null);
-      const nota = normalizeRating((await page.locator('.overview-rating-average, .rating').first().textContent())?.trim() || null);
-      const imagem = await page.locator('img[src*="https" i]').first().getAttribute('src');
+      // Título (várias variações de UI)
+      const nome = (await page.locator('h1, .product-title-text, [data-pl*="Title" i]').first().textContent())?.trim() || 'Produto';
+      // Preço: usar vários seletores e fallback em JSON-LD/meta
+      let precoText = await page.locator('[itemprop="price"]').first().getAttribute('content').catch(()=>null);
+      if (!precoText) precoText = await page.locator('.product-price-current, .product-price-value, .price, [class*="price" i]').first().innerText().catch(()=>null);
+      if (!precoText) {
+        const ldjson = await page.locator('script[type="application/ld+json"]').allTextContents().catch(()=>[]);
+        for (const s of ldjson) {
+          try { const j = JSON.parse(s); const p = Array.isArray(j) ? j.find(x=>x.offers?.price) : j; if (p?.offers?.price) { precoText = String(p.offers.price); break; } } catch {}
+        }
+      }
+      const price = normalizePriceBRL(precoText || null);
+      const nota = normalizeRating((await page.locator('.overview-rating-average, .rating, [aria-label*="rating" i]').first().textContent())?.trim() || null);
+      const imagem = await page.locator('img[src^="http" i]').first().getAttribute('src');
       const descricao = await page.locator('meta[name="description"]').getAttribute('content');
 
       // tentativa de extrair specs por labels comuns
@@ -79,6 +92,11 @@ export const AliExpressScraper: Scraper = {
         if (!fabricante && /fabricante|manufacturer/.test(text)) fabricante = (text.match(/fabricante|manufacturer:?\s*([^\n]+)/)?.[1] ?? null);
         if (!ean_gtin && /ean|gtin/.test(text)) ean_gtin = ean_gtin ?? extractEAN(text);
       }
+
+      // imagens adicionais
+      const imagens = await page.locator('img[src^="http" i]').evaluateAll((imgs:any[]) =>
+        Array.from(new Set(imgs.map(i => (i as HTMLImageElement).src))).slice(0,8)
+      ).catch(()=>null);
 
       const prod: Produto = {
         nome,
@@ -105,7 +123,7 @@ export const AliExpressScraper: Scraper = {
         sku: null,
         estado: null,
         estoque: null,
-        imagens: imagem ? [imagem] : null,
+        imagens: imagens ?? (imagem ? [imagem] : null),
         product_id: null,
         vendedor: null,
       };

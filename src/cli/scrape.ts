@@ -17,16 +17,25 @@ function parseArgs(argv: string[]) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const asBool = (v: any, def = false) => {
+    if (v === undefined) return def;
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'number') return v !== 0;
+    const s = String(v).toLowerCase().trim();
+    if (['1','true','yes','y','on'].includes(s)) return true;
+    if (['0','false','no','n','off',''].includes(s)) return false;
+    return def;
+  };
   const body: RunBody = {
     marketplace: (args.marketplace || 'Temu') as any,
     query: args.query || 'smartphone',
     pages: Number(args.pages || 3),
     products: Number(args.products || 10),
-    sampleRandomPages: Boolean(args.sampleRandomPages || false),
-    clearCookies: Boolean(args.clearCookies || false),
+    sampleRandomPages: asBool(args.sampleRandomPages, false),
+    clearCookies: asBool(args.clearCookies, false),
     timeouts: { connect: Number(args.connect || 7), load: Number(args.load || 3) },
-    headless: Boolean(args.headless ?? true),
-    debug: Boolean(args.debug || false),
+    headless: asBool(args.headless, false),
+    debug: asBool(args.debug, true),
     proxy: args.proxy || null,
   };
   console.log(`Rodando CLI:`, body);
